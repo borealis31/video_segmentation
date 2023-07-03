@@ -9,7 +9,7 @@ RANSAC_MINIMUM_RATIO_INLIERS = 0.60
 RANSAC_MINIMUM_ERROR_ANGLE = 15
 RANSAC_RATIO_INCREASE_ETA = 0.0001
 
-def foe(c0, c1):
+def format_coords(c0, c1):
     c0 = c0[0].permute(1, 2, 0).cpu().numpy()
     c1 = c1[0].permute(1, 2, 0).cpu().numpy()
 
@@ -145,9 +145,10 @@ def find_inliers_outliers(x0, y0, OFVectors):
     # Return set of inliers and ratio of inliers to overall set
     return inliers, ratioInliersOutliers
 
-def RANSAC(OFVectors):
+def RANSAC(coords0, coords1):
     """Estimate the FOE of a set of optical flow (OF) vectors using a form of RANSAC method."""
     # Initialize some variables
+    OFVectors = format_coords(coords0, coords1)
     FOE = (0, 0)
     savedRatio = 0
     inliersModel = np.array([])

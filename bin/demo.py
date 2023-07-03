@@ -7,26 +7,19 @@ import numpy as np
 import torch
 from PIL import Image
 import matplotlib.pyplot as plt
+import cv2
 
 import sys
 sys.path.append("/home/kristinchengwu/dev/video-segmentation/optical-flow/src")
 sys.path.append("/home/kristinchengwu/dev/video-segmentation/focus-of-expansion")
+sys.path.append("/home/kristinchengwu/dev/video-segmentation/time-to-contact")
 from raft import RAFT
 from utils import flow_viz
 from utils.utils import InputPadder
 from foe import RANSAC
+from ttc import get_ttc
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-def get_foe(coords0, coords1):
-    # convert to numpy 
-    coords0 = coords0[0].permute(1, 2, 0).cpu().numpy()
-    coords1 = coords1[0].permute(1, 2, 0).cpu().numpy()
-
-    coords0 = coords0.reshape((coords0.shape[0]*coords0.shape[1], 2))
-    coords1 = coords1.reshape((coords1.shape[0]*coords1.shape[1], 2))
-    coords = np.hstack((coords0, coords1))
-    return coords
 
 def load_image(imfile):
     img = np.array(Image.open(imfile)).astype(np.uint8)
@@ -53,28 +46,38 @@ def main(args):
             padder = InputPadder(image1.shape)
             image1, image2 = padder.pad(image1, image2)
 
+            # get optical flow
             coords0, coords1, flow_up = model(image1, image2, iters=20, test_mode=True)
-            coords = get_foe(coords0, coords1)
-            foe, inlier_ratio, inliers = RANSAC(coords)
+            optical_flow = flow_up[0].permute(1,2,0).cpu().numpy()
+
+            # get foe
+            foe, inlier_ratio, inliers = RANSAC(coords0, coords1)
+            foe = (foe[0]*8, foe[1]*8)
+
+            # get ttc
+            coords = np.array(np.meshgrid(range(optical_flow.shape[1]), range(optical_flow.shape[0])))
+            coords = np.transpose(coords, [1, 2, 0])
+            ttc = get_ttc(coords, optical_flow, foe)
 
             # visualization
             img = image1
-            flo = flow_up
             img = img[0].permute(1,2,0).cpu().numpy()
 
-            outliers = set(range(0, len(coords))) - set(inliers)
+            """outliers = set(range(0, len(coords))) - set(inliers)
             for outlier in outliers:
                 outlier = round(outlier)
                 i1 = round(coords[outlier][1])*8
                 i2 = round(coords[outlier][0])*8
-                img[i1:(i1+8), i2:(i2+8) ] =  np.array([255, 0, 0])
+                img[i1:(i1+8), i2:(i2+8) ] =  np.array([255, 0, 0])"""
 
-            flo = flo[0].permute(1,2,0).cpu().numpy()
-            flo = flow_viz.flow_to_image(flo)
+            flo = flow_viz.flow_to_image(optical_flow)
 
-            img_flo = np.concatenate([img, flo], axis=0)
-            plt.plot(foe[0]*8, foe[1]*8, marker="v", color="white")
-            plt.imshow(img_flo / 255.0)
+            ttc_viz = (np.clip(ttc/np.percentile(ttc, 50), a_min=0, a_max=1)*255).astype(np.float32)
+            ttc_viz = cv2.cvtColor(ttc_viz, cv2.COLOR_GRAY2RGB)
+
+            img_flo_ttc = np.concatenate([img, flo, ttc_viz], axis=0)
+            plt.plot(foe[0], foe[1], marker="v", color="white")
+            plt.imshow(img_flo_ttc / 255.0)
             plt.show()
 
 if __name__ == '__main__':
