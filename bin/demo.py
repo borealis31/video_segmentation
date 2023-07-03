@@ -33,21 +33,6 @@ def load_image(imfile):
     img = torch.from_numpy(img).permute(2, 0, 1).float()
     return img[None].to(device)
 
-def viz(img, flo, foe):
-    img = img[0].permute(1,2,0).cpu().numpy()
-    flo = flo[0].permute(1,2,0).cpu().numpy()
-    
-    # map flow to rgb image
-    flo = flow_viz.flow_to_image(flo)
-    img_flo = np.concatenate([img, flo], axis=0)
-
-    foe_x = foe[0]*8
-    foe_y = foe[1]*8
-
-    plt.plot(foe_x, foe_y, marker="v", color="red")
-    plt.imshow(img_flo / 255.0)
-    plt.show()
-
 def main(args):
 
     model = torch.nn.DataParallel(RAFT(args))
@@ -73,7 +58,24 @@ def main(args):
             foe, inlier_ratio, inliers = RANSAC(coords)
 
             # visualization
-            viz(image1, flow_up, foe)
+            img = image1
+            flo = flow_up
+            img = img[0].permute(1,2,0).cpu().numpy()
+
+            outliers = set(range(0, len(coords))) - set(inliers)
+            for outlier in outliers:
+                outlier = round(outlier)
+                i1 = round(coords[outlier][1])*8
+                i2 = round(coords[outlier][0])*8
+                img[i1:(i1+8), i2:(i2+8) ] =  np.array([255, 0, 0])
+
+            flo = flo[0].permute(1,2,0).cpu().numpy()
+            flo = flow_viz.flow_to_image(flo)
+
+            img_flo = np.concatenate([img, flo], axis=0)
+            plt.plot(foe[0]*8, foe[1]*8, marker="v", color="white")
+            plt.imshow(img_flo / 255.0)
+            plt.show()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
