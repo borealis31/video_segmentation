@@ -9,10 +9,11 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import cv2
 
+home_path = os.path.dirname(os.getcwd())
 import sys
-sys.path.append("/home/kristinchengwu/dev/video-segmentation/optical-flow/src")
-sys.path.append("/home/kristinchengwu/dev/video-segmentation/focus-of-expansion")
-sys.path.append("/home/kristinchengwu/dev/video-segmentation/time-to-contact")
+sys.path.append(os.path.join(home_path,"optical-flow/src"))
+sys.path.append(os.path.join(home_path,"focus-of-expansion"))
+sys.path.append(os.path.join(home_path,"time-to-contact"))
 from raft import RAFT
 from utils import flow_viz
 from utils.utils import InputPadder
