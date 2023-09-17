@@ -36,11 +36,16 @@ def main(args):
     model.eval()
 
     with torch.no_grad():
-        images = glob.glob(os.path.join(args.path, '*.png')) + glob.glob(os.path.join(args.path, '*.jpg'))
+        # Get images from example_frames directory    
+        images = os.listdir(args.path)
+        for image in images:
+            if not(image.endswith(".png")) and not(image.endswith(".jpg")):
+                images.remove(image)
         images = sorted(images)
+        images = [args.path + image for image in images]
 
+        # Load two images based on ordering in name
         for imfile1, imfile2 in zip(images[:-1], images[1:]):
-
             image1 = load_image(imfile1)
             image2 = load_image(imfile2)
 
@@ -79,12 +84,13 @@ def main(args):
             img_flo_ttc = np.concatenate([img, flo, ttc_viz], axis=0)
             plt.plot(foe[0], foe[1], marker="v", color="white")
             plt.imshow(img_flo_ttc / 255.0)
-            plt.show()
+            #plt.show()
+            plt.savefig("demo.png")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', help="restore checkpoint")
-    parser.add_argument('--path', help="dataset for evaluation")
+    parser.add_argument('--model', default="../optical-flow/models/raft-things.pth",help="restore checkpoint")
+    parser.add_argument('--path', default="example_frames/",help="dataset for evaluation")
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
