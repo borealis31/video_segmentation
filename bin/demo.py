@@ -36,7 +36,7 @@ def main(args):
     model.eval()
 
     with torch.no_grad():
-        # Get images from example_frames directory    
+        # Get images from image directory (default example_frames)
         images = os.listdir(args.path)
         for image in images:
             if not(image.endswith(".png")) and not(image.endswith(".jpg")):
@@ -82,7 +82,7 @@ def main(args):
             ttc_viz = cv2.cvtColor(ttc_viz, cv2.COLOR_GRAY2RGB)
 
             img_flo_ttc = np.concatenate([img, flo, ttc_viz], axis=0)
-            plt.plot(foe[0], foe[1], marker="v", color="white")
+            plt.plot(foe[0], foe[1], marker="v", color="red")
             plt.imshow(img_flo_ttc / 255.0)
             #plt.show()
             plt.savefig("demo.png")
