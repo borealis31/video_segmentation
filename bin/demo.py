@@ -6,6 +6,7 @@ import glob
 import numpy as np
 import torch
 from PIL import Image
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import cv2
 
@@ -57,13 +58,21 @@ def main(args):
             optical_flow = flow_up[0].permute(1,2,0).cpu().numpy()
 
             # get foe
-            foe, inlier_ratio, inliers = RANSAC(coords0, coords1)
-            foe = (foe[0]*8, foe[1]*8)
-
-            # get ttc
-            coords = np.array(np.meshgrid(range(optical_flow.shape[1]), range(optical_flow.shape[0])))
-            coords = np.transpose(coords, [1, 2, 0])
-            ttc = get_ttc(coords, optical_flow, foe)
+            # NOTE: we can kernel sample coords0 and coords1 to get subset and find FoE for each subset
+            # then have the results appended to a list of FoEs
+            foe_size = 40
+            foe_step = 3
+            foe_set = []
+            #print(coords0.size())
+            for i in range(0, coords0.size()[2] - foe_size - 1, foe_step):
+                for j in range(0, coords0.size()[3] - foe_size - 1, foe_step):
+                    # Sliding Window Implementation
+                    foe_sample0 = coords0[0, :, i:i+foe_size, j:j+foe_size]
+                    foe_sample1 = coords1[0, :, i:i+foe_size, j:j+foe_size]
+                    foe, inlier_ratio, inliers = RANSAC(foe_sample0, foe_sample1)
+                    foe = [(foe[0])*8, (foe[1])*8]
+                    foe_set.append(foe)
+                    print(len(foe_set))
 
             # visualization
             img = image1
@@ -78,14 +87,20 @@ def main(args):
 
             flo = flow_viz.flow_to_image(optical_flow)
 
-            ttc_viz = (np.clip(ttc/np.percentile(ttc, 50), a_min=0, a_max=1)*255).astype(np.float32)
-            ttc_viz = cv2.cvtColor(ttc_viz, cv2.COLOR_GRAY2RGB)
-
-            img_flo_ttc = np.concatenate([img, flo, ttc_viz], axis=0)
-            plt.plot(foe[0], foe[1], marker="v", color="red")
-            plt.imshow(img_flo_ttc / 255.0)
+            img_flo = np.concatenate([img, flo], axis=0)
+            #plt.plot(foe[0], foe[1], marker="v", color="red")
+            plt.imshow(img_flo / 255.0)
             #plt.show()
             plt.savefig("demo.png")
+
+            foe_x, foe_y = zip(*foe_set)
+            plt.cla()
+            heatmap, xe, ye = np.histogram2d(foe_x, foe_y, bins=(np.ceil([coords0.size()[2], coords0.size()[3]])).astype(int),range=[[0, img.shape[1]],[0, img.shape[0]]])
+            ex = [xe[0], xe[-1], ye[0], ye[-1]]
+            plt.imshow(np.flip(heatmap.T,0), extent=[0, img.shape[1], 0, img.shape[0]], cmap=mpl.colormaps['turbo'])
+            #plt.scatter(foe_x,foe_y)
+            plt.imshow(img / 255.0, alpha=0.5)
+            plt.savefig("foe_heatmap.png")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

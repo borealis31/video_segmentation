@@ -10,8 +10,8 @@ RANSAC_MINIMUM_ERROR_ANGLE = 15
 RANSAC_RATIO_INCREASE_ETA = 0.0001
 
 def format_coords(c0, c1):
-    c0 = c0[0].permute(1, 2, 0).cpu().numpy()
-    c1 = c1[0].permute(1, 2, 0).cpu().numpy()
+    c0 = c0.permute(1, 2, 0).cpu().numpy()
+    c1 = c1.permute(1, 2, 0).cpu().numpy()
 
     c0 = c0.reshape((c0.shape[0]*c0.shape[1], 2))
     c1 = c1.reshape((c1.shape[0]*c1.shape[1], 2))
