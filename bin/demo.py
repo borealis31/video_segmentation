@@ -60,8 +60,8 @@ def main(args):
             # get foe
             # NOTE: we can kernel sample coords0 and coords1 to get subset and find FoE for each subset
             # then have the results appended to a list of FoEs
-            foe_size = 40
-            foe_step = 3
+            foe_size = int(args.sample)
+            foe_step = 2
             foe_set = []
             #print(coords0.size())
             for i in range(0, coords0.size()[2] - foe_size - 1, foe_step):
@@ -95,12 +95,27 @@ def main(args):
 
             foe_x, foe_y = zip(*foe_set)
             plt.cla()
-            heatmap, xe, ye = np.histogram2d(foe_x, foe_y, bins=(np.ceil([coords0.size()[2], coords0.size()[3]])).astype(int),range=[[0, img.shape[1]],[0, img.shape[0]]])
+            heatmap, xe, ye = np.histogram2d(foe_x, foe_y, bins=(np.ceil([coords0.size()[3]*2, coords0.size()[2]*2])).astype(int),range=[[0, img.shape[1]],[0, img.shape[0]]])
             ex = [xe[0], xe[-1], ye[0], ye[-1]]
-            plt.imshow(np.flip(heatmap.T,0), extent=[0, img.shape[1], 0, img.shape[0]], cmap=mpl.colormaps['turbo'])
+            if ex[0] > 0:
+                ex[0] = 0
+            if ex[1] < img.shape[1]:
+                ex[1] = img.shape[1]
+            if ex[2] > 0:
+                ex[2] = 2
+            if ex[3] < img.shape[0]:
+                ex[3] = img.shape[0]
+            heatmap = np.flip(heatmap.T,0)
+            plt.imshow(heatmap, extent=ex, cmap=mpl.colormaps['turbo'])
             #plt.scatter(foe_x,foe_y)
             plt.imshow(img / 255.0, alpha=0.5)
             plt.savefig("foe_heatmap.png")
+
+            plt.cla()
+            blurred_hm = cv2.GaussianBlur(heatmap, (7,7), cv2.BORDER_DEFAULT)
+            plt.imshow(blurred_hm, extent=ex, cmap=mpl.colormaps['turbo'])
+            plt.imshow(img / 255.0, alpha=0.5)
+            plt.savefig("foe_heatmap_blur.png")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -109,6 +124,7 @@ if __name__ == '__main__':
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
+    parser.add_argument('--sample', default="16",help="use a square of sample to analyze FoEs")
     args = parser.parse_args()
 
     main(args)
