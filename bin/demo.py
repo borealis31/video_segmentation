@@ -45,18 +45,50 @@ def main(args):
         images = sorted(images)
         images = [args.path + image for image in images]
 
-        # Load two images based on ordering in name
-        for imfile1, imfile2 in zip(images[:-1], images[1:]):
+        if len(images) < 3:
+            print("Error: Expected at least 3 images")
+            return
+
+        # Load three images based on ordering in name (chronological)
+        for i in range(len(images) - 2):
+            imfile1 = images[i]
+            imfile2 = images[i + 1]
+            imfile3 = images[i + 2]
+
             image1 = load_image(imfile1)
             image2 = load_image(imfile2)
+            image3 = load_image(imfile3)
 
             padder = InputPadder(image1.shape)
-            image1, image2 = padder.pad(image1, image2)
+            image1, image2, image3 = padder.pad(image1, image2, image3)
 
             # get optical flow
-            coords0, coords1, flow_up = model(image1, image2, iters=20, test_mode=True)
-            optical_flow = flow_up[0].permute(1,2,0).cpu().numpy()
+            coords0, coords1, flow_up1 = model(image1, image2, iters=20, test_mode=True)
+            coords2, coords3, flow_up2 = model(image2, image3, iters=20, test_mode=True)
+            optical_flow1 = flow_up1[0].permute(1,2,0).cpu().numpy()
+            optical_flow2 = flow_up2[0].permute(1,2,0).cpu().numpy()
+        
+            grad_flow = optical_flow2 - optical_flow1
+            grad_flow_vis = flow_viz.flow_to_image(grad_flow)
 
+            flo1 = flow_viz.flow_to_image(optical_flow1)
+            flo2 = flow_viz.flow_to_image(optical_flow2)
+            
+            vis_img2 = image2
+            vis_img2 = vis_img2[0].permute(1,2,0).cpu().numpy()
+            
+            img_flo = np.concatenate([vis_img2, flo1, flo2], axis=0)
+            plt.imshow(img_flo / 255.0)
+            plt.savefig("demo_flows.png")
+
+            img_flo = np.concatenate([vis_img2, grad_flow_vis], axis=0)
+            plt.imshow(img_flo / 255.0)
+            plt.savefig("demo_grad.png")
+
+            continue
+
+            """ Commented 1/10, Keeping for Future Reference
+            FoE Sampling Fails to Provide Metric for Objects Moving Parallel to the Camera
             # get foe
             # NOTE: we can kernel sample coords0 and coords1 to get subset and find FoE for each subset
             # then have the results appended to a list of FoEs
@@ -76,7 +108,7 @@ def main(args):
 
             # visualization
             img = image1
-            img = img[0].permute(1,2,0).cpu().numpy()
+            img = img[0].permute(1,2,0).cpu().numpy()"""
 
             """outliers = set(range(0, len(coords))) - set(inliers)
             for outlier in outliers:
