@@ -3,3 +3,4 @@
 .ipynb_checkpoints
 testing.ipynb
 env/*
+bin/example_frames/data
