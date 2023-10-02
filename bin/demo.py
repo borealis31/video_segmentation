@@ -71,20 +71,67 @@ def main(args):
             grad_flow = optical_flow2 - optical_flow1
             grad_flow_vis = flow_viz.flow_to_image(grad_flow)
 
+            gf_magn = np.sqrt(np.sum(np.power(grad_flow,2),axis=2))
+            gf_magn = np.divide(np.multiply(gf_magn, 255),np.max(gf_magn))
+            gf_magn = cv2.cvtColor(gf_magn,cv2.COLOR_GRAY2RGB)
+
+            dir_map = plt.get_cmap('hsv')
+            gf_dir = np.divide(np.add(np.arctan2(grad_flow[:,:,0],grad_flow[:,:,1]),np.pi),2*np.pi)
+            gf_dir = np.multiply(dir_map(gf_dir)[:,:,:3],255.0)
+            
+            gf_overlap = np.multiply(np.divide(gf_magn,255.0),gf_dir)
+
             flo1 = flow_viz.flow_to_image(optical_flow1)
             flo2 = flow_viz.flow_to_image(optical_flow2)
             
+            vis_img1 = image1
+            vis_img1 = vis_img1[0].permute(1,2,0).cpu().numpy()
             vis_img2 = image2
             vis_img2 = vis_img2[0].permute(1,2,0).cpu().numpy()
-            
+            vis_img3 = image3
+            vis_img3 = vis_img3[0].permute(1,2,0).cpu().numpy()
+
+            """fig, ((pl1, pl2, pl3), (pl4, pl5, pl6)) = plt.subplots(2,3)
+            fig.set_figwidth(12.8)
+            fig.set_figheight(9.6)
+            pl1.imshow(vis_img1 / 255.0)
+            pl2.imshow(vis_img2 / 255.0)
+            pl3.imshow(vis_img3 / 255.0)
+            pl4.imshow(gf_magn / 255.0)
+            pl5.imshow(gf_dir / 255.0)
+            pl6.imshow(gf_overlap / 255.0)
+            plt.savefig("demo.png")
+        
             img_flo = np.concatenate([vis_img2, flo1, flo2], axis=0)
             plt.imshow(img_flo / 255.0)
-            plt.savefig("demo_flows.png")
+            plt.savefig("demo_flows.png")"""
 
-            img_flo = np.concatenate([vis_img2, grad_flow_vis], axis=0)
-            plt.imshow(img_flo / 255.0)
-            plt.savefig("demo_grad.png")
+            fig, (pl1, pl2) = plt.subplots(2,1)
+            fig.subplots_adjust(top=0.93, bottom=0.15, hspace=0.01)
+            pl1.imshow(vis_img2.astype('int'))
+            pl2.imshow(gf_magn.astype('int'))
+            fig.suptitle("Optical Flow Gradient Magnitude (Normalized)")
+            fig.savefig("demo_grad_magn.png")
 
+            pl1.cla()
+            pl2.cla()
+
+            pl3 = fig.add_axes([0.15, 0.1, 0.7, 0.025])
+            pl1.imshow(vis_img2.astype('int'))
+            pl2.imshow(gf_dir.astype('int'))
+            fig.colorbar(mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=0, vmax=360), cmap=mpl.cm.hsv),
+                         cax=pl3, orientation="horizontal",label="Gradient Direction [deg]")
+            fig.suptitle("Optical Flow Direction")
+            fig.savefig("demo_grad_dir.png")
+
+            pl1.cla()
+            pl2.cla()
+
+            pl1.imshow(vis_img2.astype('int'))
+            pl2.imshow(gf_overlap.astype('int'))
+            fig.suptitle("Optical Flow Magnitude and Direction Overlayed")
+            fig.savefig("demo_grad_overlap.png")
+            
             continue
 
             """ Commented 1/10, Keeping for Future Reference
@@ -108,14 +155,7 @@ def main(args):
 
             # visualization
             img = image1
-            img = img[0].permute(1,2,0).cpu().numpy()"""
-
-            """outliers = set(range(0, len(coords))) - set(inliers)
-            for outlier in outliers:
-                outlier = round(outlier)
-                i1 = round(coords[outlier][1])*8
-                i2 = round(coords[outlier][0])*8
-                img[i1:(i1+8), i2:(i2+8) ] =  np.array([255, 0, 0])"""
+            img = img[0].permute(1,2,0).cpu().numpy()
 
             flo = flow_viz.flow_to_image(optical_flow)
 
@@ -147,7 +187,14 @@ def main(args):
             blurred_hm = cv2.GaussianBlur(heatmap, (7,7), cv2.BORDER_DEFAULT)
             plt.imshow(blurred_hm, extent=ex, cmap=mpl.colormaps['turbo'])
             plt.imshow(img / 255.0, alpha=0.5)
-            plt.savefig("foe_heatmap_blur.png")
+            plt.savefig("foe_heatmap_blur.png")"""
+
+            """outliers = set(range(0, len(coords))) - set(inliers)
+            for outlier in outliers:
+                outlier = round(outlier)
+                i1 = round(coords[outlier][1])*8
+                i2 = round(coords[outlier][0])*8
+                img[i1:(i1+8), i2:(i2+8) ] =  np.array([255, 0, 0])"""
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
