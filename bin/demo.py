@@ -21,6 +21,8 @@ from utils.utils import InputPadder
 from foe import RANSAC
 from ttc import get_ttc
 
+from sklearn.decomposition import FastICA
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 def load_image(imfile):
@@ -73,13 +75,26 @@ def main(args):
 
             gf_magn = np.sqrt(np.sum(np.power(grad_flow,2),axis=2))
             gf_magn = np.divide(np.multiply(gf_magn, 255),np.max(gf_magn))
-            gf_magn = cv2.cvtColor(gf_magn,cv2.COLOR_GRAY2RGB)
+            gf_magn_rgb = cv2.cvtColor(gf_magn,cv2.COLOR_GRAY2RGB)
 
             dir_map = plt.get_cmap('hsv')
             gf_dir = np.divide(np.add(np.arctan2(grad_flow[:,:,0],grad_flow[:,:,1]),np.pi),2*np.pi)
             gf_dir = np.multiply(dir_map(gf_dir)[:,:,:3],255.0)
             
-            gf_overlap = np.multiply(np.divide(gf_magn,255.0),gf_dir)
+            gf_overlap = np.multiply(np.divide(gf_magn_rgb,255.0),gf_dir)
+            ica = FastICA(n_components=1)
+            ica.fit(gf_magn)
+            gf_ica = ica.fit_transform(gf_magn)
+            gf_ica_inv = ica.inverse_transform(gf_ica)
+            gf_ica_inv = 255.0*gf_ica_inv/np.max(gf_ica_inv)
+            gf_iso = gf_magn - gf_ica_inv
+
+            plt.imshow(cv2.cvtColor(gf_iso,cv2.COLOR_GRAY2RGB).astype('int'))
+            plt.savefig("inv_iso.png")
+
+
+            print(gf_magn.shape)
+            print(gf_ica.shape)
 
             flo1 = flow_viz.flow_to_image(optical_flow1)
             flo2 = flow_viz.flow_to_image(optical_flow2)
@@ -91,25 +106,10 @@ def main(args):
             vis_img3 = image3
             vis_img3 = vis_img3[0].permute(1,2,0).cpu().numpy()
 
-            """fig, ((pl1, pl2, pl3), (pl4, pl5, pl6)) = plt.subplots(2,3)
-            fig.set_figwidth(12.8)
-            fig.set_figheight(9.6)
-            pl1.imshow(vis_img1 / 255.0)
-            pl2.imshow(vis_img2 / 255.0)
-            pl3.imshow(vis_img3 / 255.0)
-            pl4.imshow(gf_magn / 255.0)
-            pl5.imshow(gf_dir / 255.0)
-            pl6.imshow(gf_overlap / 255.0)
-            plt.savefig("demo.png")
-        
-            img_flo = np.concatenate([vis_img2, flo1, flo2], axis=0)
-            plt.imshow(img_flo / 255.0)
-            plt.savefig("demo_flows.png")"""
-
             fig, (pl1, pl2) = plt.subplots(2,1)
             fig.subplots_adjust(top=0.93, bottom=0.15, hspace=0.01)
             pl1.imshow(vis_img2.astype('int'))
-            pl2.imshow(gf_magn.astype('int'))
+            pl2.imshow(gf_magn_rgb.astype('int'))
             fig.suptitle("Optical Flow Gradient Magnitude (Normalized)")
             fig.savefig("demo_grad_magn.png")
 
