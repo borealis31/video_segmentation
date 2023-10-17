@@ -40,12 +40,17 @@ def main(args):
 
     with torch.no_grad():
         # Get images from image directory (default example_frames)
-        images = os.listdir(args.path)
+        if args.scene == "driving":
+            path = "example_frames/driving/"
+        elif args.scene == "intersection":
+            path = "example_frames/intersection/"
+        
+        images = os.listdir(path)
         for image in images:
             if not(image.endswith(".png")) and not(image.endswith(".jpg")):
                 images.remove(image)
         images = sorted(images)
-        images = [args.path + image for image in images]
+        images = [path + image for image in images]
 
         if len(images) < 3:
             print("Error: Expected at least 3 images")
@@ -71,7 +76,6 @@ def main(args):
             optical_flow2 = flow_up2[0].permute(1,2,0).cpu().numpy()
         
             grad_flow = optical_flow2 - optical_flow1
-            grad_flow_vis = flow_viz.flow_to_image(grad_flow)
 
             gf_magn = np.sqrt(np.sum(np.power(grad_flow,2),axis=2))
             gf_magn = np.divide(np.multiply(gf_magn, 255),np.max(gf_magn))
@@ -82,7 +86,9 @@ def main(args):
             gf_dir = np.multiply(dir_map(gf_dir)[:,:,:3],255.0)
             
             gf_overlap = np.multiply(np.divide(gf_magn_rgb,255.0),gf_dir)
-            ica = FastICA(n_components=1)
+            
+            # Linear ICA, probably not going to be super useful for this project but provides some starting point
+            ica = FastICA(n_components=2)
             ica.fit(gf_magn)
             gf_ica = ica.fit_transform(gf_magn)
             gf_ica_inv = ica.inverse_transform(gf_ica)
@@ -90,11 +96,10 @@ def main(args):
             gf_iso = gf_magn - gf_ica_inv
 
             plt.imshow(cv2.cvtColor(gf_iso,cv2.COLOR_GRAY2RGB).astype('int'))
-            plt.savefig("inv_iso.png")
+            plt.savefig(args.scene + "_inv_iso.png")
 
-
-            print(gf_magn.shape)
-            print(gf_ica.shape)
+            plt.imshow(cv2.cvtColor(gf_ica_inv,cv2.COLOR_GRAY2RGB).astype('int'))
+            plt.savefig(args.scene + "_inv_ica.png")
 
             flo1 = flow_viz.flow_to_image(optical_flow1)
             flo2 = flow_viz.flow_to_image(optical_flow2)
@@ -111,7 +116,7 @@ def main(args):
             pl1.imshow(vis_img2.astype('int'))
             pl2.imshow(gf_magn_rgb.astype('int'))
             fig.suptitle("Optical Flow Gradient Magnitude (Normalized)")
-            fig.savefig("demo_grad_magn.png")
+            fig.savefig(args.scene + "_grad_magn.png")
 
             pl1.cla()
             pl2.cla()
@@ -122,7 +127,7 @@ def main(args):
             fig.colorbar(mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=0, vmax=360), cmap=mpl.cm.hsv),
                          cax=pl3, orientation="horizontal",label="Gradient Direction [deg]")
             fig.suptitle("Optical Flow Direction")
-            fig.savefig("demo_grad_dir.png")
+            fig.savefig(args.scene + "_grad_dir.png")
 
             pl1.cla()
             pl2.cla()
@@ -130,7 +135,25 @@ def main(args):
             pl1.imshow(vis_img2.astype('int'))
             pl2.imshow(gf_overlap.astype('int'))
             fig.suptitle("Optical Flow Magnitude and Direction Overlayed")
-            fig.savefig("demo_grad_overlap.png")
+            fig.savefig(args.scene + "_grad_overlap.png")
+            plt.clf()
+            # Let's just look at OF and see how that responds to FastICA
+            ica_OF = FastICA(n_components=1)
+            
+            OF_magn = np.sqrt(np.sum(np.power(optical_flow1,2),axis=2))
+            OF_magn = np.divide(np.multiply(OF_magn, 255),np.max(OF_magn))
+            
+            ica_OF.fit(OF_magn)
+            OF_ica = ica.fit_transform(OF_magn)
+            OF_ica_inv = ica.inverse_transform(OF_ica)
+            OF_ica_inv = 255.0*OF_ica_inv/np.max(OF_ica_inv)
+            OF_iso = OF_magn - OF_ica_inv
+
+            plt.imshow(cv2.cvtColor(OF_iso,cv2.COLOR_GRAY2RGB).astype('int'))
+            plt.savefig(args.scene + "_inv_iso_optical_flow.png")
+
+            plt.imshow(cv2.cvtColor(OF_ica_inv,cv2.COLOR_GRAY2RGB).astype('int'))
+            plt.savefig(args.scene + "_inv_ica_optical_flow.png")
             
             continue
 
@@ -199,11 +222,11 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default="../optical-flow/models/raft-things.pth",help="restore checkpoint")
-    parser.add_argument('--path', default="example_frames/",help="dataset for evaluation")
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
     parser.add_argument('--sample', default="16",help="use a square of sample to analyze FoEs")
+    parser.add_argument('--scene', default="driving", help="select scene for analysis")
     args = parser.parse_args()
 
     main(args)
