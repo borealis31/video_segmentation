@@ -78,82 +78,80 @@ def main(args):
             grad_flow = optical_flow2 - optical_flow1
 
             gf_magn = np.sqrt(np.sum(np.power(grad_flow,2),axis=2))
-            gf_magn = gf_magn * 255 / gf_magn.max()
+            gf_magn = gf_magn / gf_magn.max()
             
-            
-            
-            gf_magn_rgb = cv2.cvtColor(gf_magn,cv2.COLOR_GRAY2RGB)
+            gf_dir = (np.arctan2(grad_flow[:,:,0],grad_flow[:,:,1]) + np.pi) / (2*np.pi)
             
             dir_map = plt.get_cmap('hsv')
-            gf_dir = (np.arctan2(grad_flow[:,:,0],grad_flow[:,:,1]) + np.pi) / (2*np.pi)
-            gf_dir = np.multiply(dir_map(gf_dir)[:,:,:3],255.0)
-
-            gf_overlap = np.multiply(np.divide(gf_magn_rgb,255.0),gf_dir)
+            gf_magn_GS = cv2.cvtColor(gf_magn,cv2.COLOR_GRAY2RGB)
+            gf_dir_RGB = np.multiply(dir_map(gf_dir)[:,:,:3],255.0)
+            gf_overlap_RGB = np.multiply(np.divide(gf_magn_GS,255.0),gf_dir_RGB)
             
-            # Linear ICA, probably not going to be super useful for this project but provides some starting point
-            ica = FastICA(n_components=3)
-            ica.fit(gf_magn)
-            gf_ica = ica.fit_transform(gf_magn)
-            gf_ica_inv = ica.inverse_transform(gf_ica)
-            gf_ica_inv = 255.0*gf_ica_inv/np.max(gf_ica_inv)
-            gf_iso = gf_magn - gf_ica_inv
-
-            plt.imshow(cv2.cvtColor(gf_iso,cv2.COLOR_GRAY2RGB).astype('int'))
-            plt.savefig(args.scene + "_inv_iso.png")
-
-            plt.imshow(cv2.cvtColor(gf_ica_inv,cv2.COLOR_GRAY2RGB).astype('int'))
-            plt.savefig(args.scene + "_inv_ica.png")
-
-            flo1 = flow_viz.flow_to_image(optical_flow1)
-            flo2 = flow_viz.flow_to_image(optical_flow2)
+            # Perform 2 component ICA on MAG and DIR separately
+            ica_mag = FastICA(n_components=2)
+            ica_dir = FastICA(n_components=2)
             
-            vis_img1 = image1
-            vis_img1 = vis_img1[0].permute(1,2,0).cpu().numpy()
-            vis_img2 = image2
-            vis_img2 = vis_img2[0].permute(1,2,0).cpu().numpy()
-            vis_img3 = image3
-            vis_img3 = vis_img3[0].permute(1,2,0).cpu().numpy()
+            gMag_ica = ica_mag.fit_transform(gf_magn)
+            gDir_ica = ica_dir.fit_transform(gf_dir)
 
-            fig, (pl1, pl2) = plt.subplots(2,1)
-            fig.subplots_adjust(top=0.93, bottom=0.15, hspace=0.01)
-            pl1.imshow(vis_img2.astype('int'))
-            pl2.imshow(gf_magn_rgb.astype('int'))
-            fig.suptitle("Optical Flow Gradient Magnitude (Normalized)")
-            fig.savefig(args.scene + "_grad_magn.png")
+            gMag_rec = ica_mag.inverse_transform(gMag_ica)
+            gDir_rec = ica_dir.inverse_transform(gDir_ica)
 
-            pl1.cla()
-            pl2.cla()
-
-            pl3 = fig.add_axes([0.15, 0.1, 0.7, 0.025])
-            pl1.imshow(vis_img2.astype('int'))
-            pl2.imshow(gf_dir.astype('int'))
-            fig.colorbar(mpl.cm.ScalarMappable(norm=mpl.colors.Normalize(vmin=0, vmax=360), cmap=mpl.cm.hsv),
-                         cax=pl3, orientation="horizontal",label="Gradient Direction [deg]")
-            fig.suptitle("Optical Flow Direction")
-            fig.savefig(args.scene + "_grad_dir.png")
-
-            pl1.cla()
-            pl2.cla()
-
-            pl1.imshow(vis_img2.astype('int'))
-            pl2.imshow(gf_overlap.astype('int'))
-            fig.suptitle("Optical Flow Magnitude and Direction Overlayed")
-            fig.savefig(args.scene + "_grad_overlap.png")
-            plt.clf()
-
-            # Let's just look at OF and see how that responds to FastICA
-            # NOTE: FastICA does not support 3-dim data, we are limited to 2D
-            # As a means of combining direction and magnitude, we can round normalized
-            # magnitude into a [0,255] interval and attach direction as a decimal part
-            # with normalized radians from [0, 1]
-            ica_OF = FastICA(n_components=3)
+            # OF 2-Piece ICA by running FastICA(x) and FastICA(y)
+            # Working with the assumption that we can separate the signal into two distinct linear signals
             
+            # ICA maintains signal variance, but it fails to preserve spatial relationships
+
+            ica_OF_x = FastICA(n_components=1)
+            ica_OF_y = FastICA(n_components=1)
+
+            OF_shape = optical_flow1.shape[:2]
+            OF_x = optical_flow1[:,:,0]
+            OF_y = optical_flow1[:,:,1]
+
+            x_rec = ica_OF_x.fit_transform(OF_x)
+            y_rec = ica_OF_y.fit_transform(OF_y)
+
+            x_inv = ica_OF_x.inverse_transform(x_rec)
+            x_inv_vis = cv2.cvtColor(np.abs(x_inv)/np.abs(x_inv).max(),cv2.COLOR_GRAY2RGB)
+
+            y_inv = ica_OF_y.inverse_transform(y_rec)
+            y_inv_vis = cv2.cvtColor(np.abs(y_inv)/np.abs(y_inv).max(),cv2.COLOR_GRAY2RGB)
+
+            fig, ((pl1, pl3), (pl2, pl4)) = plt.subplots(2,2)
+            pl1.imshow(cv2.cvtColor(np.abs(OF_x)/np.abs(OF_x).max(),cv2.COLOR_GRAY2RGB))
+            pl2.imshow(x_inv_vis)
+            pl3.imshow(cv2.cvtColor(np.abs(OF_y)/np.abs(OF_y).max(),cv2.COLOR_GRAY2RGB))
+            pl4.imshow(y_inv_vis)
+            plt.show()
+
+            continue
+
+            fig, ((pl1, pl4), (pl2, pl5), (pl3, pl6)) = plt.subplots(3,2)
+            x_rec_1 = np.reshape(x_rec[:,0],(-1,1))
+            x_rec_2 = np.reshape(x_rec[:,1],(-1,1))
+            pl1.imshow(x_rec_1 @ np.reshape(ica_OF_x.components_[0],(1,-1)) + x_rec_1 @ np.reshape(ica_OF_x.components_[1],(1,-1)))
+            pl2.imshow(x_rec_2 @ np.reshape(ica_OF_x.components_[0],(1,-1)) + x_rec_2 @ np.reshape(ica_OF_x.components_[1],(1,-1)))
+            pl3.imshow(np.abs(ica_OF_x.inverse_transform(x_rec)))
+            
+            y_rec_1 = np.reshape(y_rec[:,0],(-1,1))
+            y_rec_2 = np.reshape(y_rec[:,1],(-1,1))
+            pl4.imshow(y_rec_1 @ np.reshape(ica_OF_y.components_[0],(1,-1)) + y_rec_1 @ np.reshape(ica_OF_y.components_[1],(1,-1)))
+            pl5.imshow(y_rec_2 @ np.reshape(ica_OF_y.components_[0],(1,-1)) + y_rec_2 @ np.reshape(ica_OF_y.components_[1],(1,-1)))
+            pl6.imshow(np.abs(ica_OF_y.inverse_transform(y_rec)))
+
+            #fig2, pl2_1 = plt.subplots(1,1)
+            #pl2_1.imshow(ica_OF_x.inverse_transform(x_rec) + ica_OF_y.inverse_transform(y_rec))
+            plt.show()
+
+            continue
+
             OF_magn = np.sqrt(np.sum(np.power(optical_flow1,2),axis=2))
             OF_magn = OF_magn / OF_magn.max()
             OF_dir = (np.arctan2(grad_flow[:,:,0],grad_flow[:,:,1]) + np.pi) / (2 * np.pi)
 
             #OF_combo = 255 * (((OF_magn * OF_dir) + np.pi) / (2*np.pi))
-            OF_combo = 25.5 * (np.floor((10*OF_dir)) + OF_magn)
+            OF_combo = 25.5 * (np.floor((10*OF_magn)) + OF_dir)
             plt.imshow(cv2.cvtColor(OF_combo,cv2.COLOR_GRAY2RGB).astype('int'))
             plt.savefig(args.scene + "_of_combo_optical_flow.png")
 
