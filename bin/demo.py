@@ -15,12 +15,15 @@ import sys
 sys.path.append(os.path.join(home_path,"optical-flow/src"))
 sys.path.append(os.path.join(home_path,"focus-of-expansion"))
 sys.path.append(os.path.join(home_path,"time-to-contact"))
+sys.path.append(home_path)
+sys.path.append(os.path.join(home_path,"VAE-BSS"))
 from raft import RAFT
 from utils import flow_viz
 from utils.utils import InputPadder
 from foe import RANSAC
 from ttc import get_ttc
-
+from vae_bss import Separator
+from pyiva.iva_laplace import *
 from sklearn.decomposition import FastICA
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -56,6 +59,9 @@ def main(args):
             print("Error: Expected at least 3 images")
             return
 
+        tst = np.random.uniform(0,10,(300,1200))
+        #sep = Separator(tst.shape, 2)
+
         # Load three images based on ordering in name (chronological by processed KITTI)
         for i in range(len(images) - 2):
             imfile1 = images[i]
@@ -87,64 +93,91 @@ def main(args):
             gf_dir_RGB = np.multiply(dir_map(gf_dir)[:,:,:3],255.0)
             gf_overlap_RGB = np.multiply(np.divide(gf_magn_GS,255.0),gf_dir_RGB)
             
-            # Perform 2 component ICA on MAG and DIR separately
-            ica_mag = FastICA(n_components=2)
-            ica_dir = FastICA(n_components=2)
+            ## BLURRED COMBINATION
+            # Idea: A Gaussian Blurred image of the OF field in addition to the OF, we may be able to recover:
+            # 1. Egomotion Field (Approx. Same in OF + Blurred)
+            # 2. Motion from OF
+            # NOTE: FastICA/pyiva require that the number of components is greater than or equal to the number of extractable
+            #       sources, e.g. we cannot extract d sources from an NxF matrix when d > N
+
+            OF_shape = optical_flow1[:,:,0].shape
+            OF_IVA_X1_B = cv2.GaussianBlur(optical_flow1[:,:,0],[7,7],0)
             
-            gMag_ica = ica_mag.fit_transform(gf_magn)
-            gDir_ica = ica_dir.fit_transform(gf_dir)
+            OF_IVA_X1 = np.ravel(optical_flow1[:,:,0])
+            OF_IVA_X1 /= np.max(np.abs(OF_IVA_X1))
+            OF_IVA_X2 = np.ravel(OF_IVA_X1_B)
+            OF_IVA_X2 /= np.max(np.abs(OF_IVA_X2))
+        
+            OF_IVA = np.array([[OF_IVA_X1, OF_IVA_X2]])
 
-            gMag_rec = ica_mag.inverse_transform(gMag_ica)
-            gDir_rec = ica_dir.inverse_transform(gDir_ica)
+            W_est = iva_laplace(OF_IVA)
+            S_IVA = W_est[0] @ OF_IVA[0]
+            S1 = np.reshape(S_IVA[0,:],OF_shape)
+            S2 = np.reshape(S_IVA[1,:],OF_shape)
 
-            # OF 2-Piece ICA by running FastICA(x) and FastICA(y)
-            # Working with the assumption that we can separate the signal into two distinct linear signals
-            
-            # ICA maintains signal variance, but it fails to preserve spatial relationships
-
-            ica_OF_x = FastICA(n_components=1)
-            ica_OF_y = FastICA(n_components=1)
-
-            OF_shape = optical_flow1.shape[:2]
-            OF_x = optical_flow1[:,:,0]
-            OF_y = optical_flow1[:,:,1]
-
-            x_rec = ica_OF_x.fit_transform(OF_x)
-            y_rec = ica_OF_y.fit_transform(OF_y)
-
-            x_inv = ica_OF_x.inverse_transform(x_rec)
-            x_inv_vis = cv2.cvtColor(np.abs(x_inv)/np.abs(x_inv).max(),cv2.COLOR_GRAY2RGB)
-
-            y_inv = ica_OF_y.inverse_transform(y_rec)
-            y_inv_vis = cv2.cvtColor(np.abs(y_inv)/np.abs(y_inv).max(),cv2.COLOR_GRAY2RGB)
+            ica_OF_x = FastICA(n_components=2)
+            S_F = ica_OF_x.fit_transform(OF_IVA[0,:,:].T)
+            S1_F = S_F[:,0].reshape(OF_shape)
+            S2_F = S_F[:,1].reshape(OF_shape)
 
             fig, ((pl1, pl3), (pl2, pl4)) = plt.subplots(2,2)
-            pl1.imshow(cv2.cvtColor(np.abs(OF_x)/np.abs(OF_x).max(),cv2.COLOR_GRAY2RGB))
-            pl2.imshow(x_inv_vis)
-            pl3.imshow(cv2.cvtColor(np.abs(OF_y)/np.abs(OF_y).max(),cv2.COLOR_GRAY2RGB))
-            pl4.imshow(y_inv_vis)
+
+            fig.suptitle("pyiva vs. FastICA for Blurred Combination of X-Motion (Magnitude)")
+            pl1.set_title("pyiva Recovered Source 1")
+            pl1.imshow(cv2.cvtColor(np.float32(np.abs(S1)),cv2.COLOR_GRAY2RGB))
+            pl2.set_title("pyiva Recovered Source 2")
+            pl2.imshow(cv2.cvtColor(np.float32(np.abs(S2)),cv2.COLOR_GRAY2RGB))
+            pl3.set_title("FastICA Recovered Source 1")
+            pl3.imshow(cv2.cvtColor(np.float32(np.abs(S1_F)),cv2.COLOR_GRAY2RGB))
+            pl4.set_title("FastICA Recovered Source 2")
+            pl4.imshow(cv2.cvtColor(np.float32(np.abs(S2_F)),cv2.COLOR_GRAY2RGB))
             plt.show()
 
-            continue
+            ## SUCCESSIVE + GRADIENT COMBINATION
+            # Idea: Using Successive OF fields + the Gradient field, we can add a third source that may enable us to recover:
+            # 1. Egomotion Field (Same in successive OFs + approx. 0 in Gradient)
+            # 2. Motion from OF 1
+            # 3. Motion from OF 2
 
+            # Perform IVA using pyiva
+            C1 = np.ravel(grad_flow[:,:,0])
+            C2 = np.ravel(optical_flow1[:,:,0])
+            C3 = np.ravel(optical_flow2[:,:,0])
+            COMB_IVA = np.array([[C1, C2, C3]])
+            COMB_IVA /= np.abs(COMB_IVA).max()
+            W_est = iva_laplace(COMB_IVA)
+            S_IVA = W_est[0] @ COMB_IVA[0]
+            S1 = np.reshape(S_IVA[0,:],OF_shape)
+            S2 = np.reshape(S_IVA[1,:],OF_shape)
+            S3 = np.reshape(S_IVA[2,:],OF_shape)
+
+            # Perform linear ICA using FastICA
+            ica_COMB_x = FastICA(n_components=3)
+            S_F = ica_COMB_x.fit_transform(COMB_IVA[0,:,:].T)
+            S1_F = S_F[:,0].reshape(OF_shape)
+            S2_F = S_F[:,1].reshape(OF_shape)
+            S3_F = S_F[:,2].reshape(OF_shape)
+
+            # Visualize Results of Successive + Gradient Combination
             fig, ((pl1, pl4), (pl2, pl5), (pl3, pl6)) = plt.subplots(3,2)
-            x_rec_1 = np.reshape(x_rec[:,0],(-1,1))
-            x_rec_2 = np.reshape(x_rec[:,1],(-1,1))
-            pl1.imshow(x_rec_1 @ np.reshape(ica_OF_x.components_[0],(1,-1)) + x_rec_1 @ np.reshape(ica_OF_x.components_[1],(1,-1)))
-            pl2.imshow(x_rec_2 @ np.reshape(ica_OF_x.components_[0],(1,-1)) + x_rec_2 @ np.reshape(ica_OF_x.components_[1],(1,-1)))
-            pl3.imshow(np.abs(ica_OF_x.inverse_transform(x_rec)))
-            
-            y_rec_1 = np.reshape(y_rec[:,0],(-1,1))
-            y_rec_2 = np.reshape(y_rec[:,1],(-1,1))
-            pl4.imshow(y_rec_1 @ np.reshape(ica_OF_y.components_[0],(1,-1)) + y_rec_1 @ np.reshape(ica_OF_y.components_[1],(1,-1)))
-            pl5.imshow(y_rec_2 @ np.reshape(ica_OF_y.components_[0],(1,-1)) + y_rec_2 @ np.reshape(ica_OF_y.components_[1],(1,-1)))
-            pl6.imshow(np.abs(ica_OF_y.inverse_transform(y_rec)))
-
-            #fig2, pl2_1 = plt.subplots(1,1)
-            #pl2_1.imshow(ica_OF_x.inverse_transform(x_rec) + ica_OF_y.inverse_transform(y_rec))
+            fig.suptitle("pyiva vs. FastICA for Successive + Gradient Combination of X-Motion (Magnitude of Recovered Signal)")
+            pl1.set_title("pyiva Recovered Source 1")
+            pl1.imshow(cv2.cvtColor(np.float32(np.abs(S1)),cv2.COLOR_GRAY2RGB))
+            pl2.set_title("pyiva Recovered Source 2")
+            pl2.imshow(cv2.cvtColor(np.float32(np.abs(S2)),cv2.COLOR_GRAY2RGB))
+            pl3.set_title("pyiva Recovered Source 3")
+            pl3.imshow(cv2.cvtColor(np.float32(np.abs(S3)),cv2.COLOR_GRAY2RGB))
+            pl4.set_title("FastICA Recovered Source 1")
+            pl4.imshow(cv2.cvtColor(np.float32(np.abs(S1_F)),cv2.COLOR_GRAY2RGB))
+            pl5.set_title("FastICA Recovered Source 2")
+            pl5.imshow(cv2.cvtColor(np.float32(np.abs(S2_F)),cv2.COLOR_GRAY2RGB))
+            pl6.set_title("FastICA Recovered Source 3")
+            pl6.imshow(cv2.cvtColor(np.float32(np.abs(S3_F)),cv2.COLOR_GRAY2RGB))
             plt.show()
 
             continue
+
+            # Old code for visualizing OF/GF, mostly for reference (pictures are in the repo)
 
             OF_magn = np.sqrt(np.sum(np.power(optical_flow1,2),axis=2))
             OF_magn = OF_magn / OF_magn.max()
