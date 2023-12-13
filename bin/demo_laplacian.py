@@ -47,6 +47,7 @@ def main(args):
         elif args.scene == "intersection":
             path = "example_frames/data/raw_intersection/"
         
+        # Extract string names of images and sort by sequence image number
         images = os.listdir(path)
         for image in images:
             if not(image.endswith(".png")) and not(image.endswith(".jpg")):
@@ -84,16 +85,14 @@ def main(args):
             OF_lap_y = cv2.Laplacian(optical_flow1[:,:,1],ddepth=-1)
             OF_lap_y /= OF_lap_y.max()
 
-            OF_lap_sum = cv2.Laplacian(optical_flow1[:,:,0],ddepth=-1) + cv2.Laplacian(optical_flow1[:,:,1],ddepth=-1)
-            OF_lap_sum /= OF_lap_sum.max()
-
-            OF_thresh = np.float32(np.array([[1 if (OF_lap_sum[l,k] > 0.3) else 0 for k in range(OF_lap_x.shape[1])] for l in range(OF_lap_x.shape[0])]))
+            # Theshold the OF crossing strength to 1 for masking
+            OF_thresh = np.float32(np.array([[1 if (np.abs(OF_lap_x[l,k]) > 0.3 or np.abs(OF_lap_y[l,k]) > 0.3) else 0 for k in range(OF_lap_x.shape[1])] for l in range(OF_lap_x.shape[0])]))
             anim_im = pl1.imshow(cv2.cvtColor(OF_thresh,cv2.COLOR_GRAY2RGB), animated=True)
             if i == 0:
                 pl1.imshow(cv2.cvtColor(OF_thresh,cv2.COLOR_GRAY2RGB))
             anim_set.append([anim_im])
         
-        
+        # Create animation of output
         anim = animation.ArtistAnimation(fig,anim_set,interval=50,blit=True,repeat_delay=1000)
         writergif = animation.PillowWriter(fps=1)
         anim.save('laplacian_sequence.gif',writer=writergif)

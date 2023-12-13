@@ -22,7 +22,6 @@ from utils import flow_viz
 from utils.utils import InputPadder
 from foe import RANSAC
 from ttc import get_ttc
-from vae_bss import Separator
 from pyiva.iva_laplace import *
 from sklearn.decomposition import FastICA
 
@@ -58,9 +57,6 @@ def main(args):
         if len(images) < 3:
             print("Error: Expected at least 3 images")
             return
-
-        # Instantiation of DL BSS model (needs to be trained + model)
-        #sep = Separator(tst.shape, 2)
 
         # Load three images based on ordering in name (chronological by processed KITTI)
         for i in range(len(images) - 2):
