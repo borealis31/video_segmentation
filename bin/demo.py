@@ -75,24 +75,18 @@ def main(args):
             padder = InputPadder(image1.shape)
             image1, image2, image3 = padder.pad(image1, image2, image3)
 
-            # get optical flow
+            # Calculate Optical Flow of 1->2 and 2->3
             coords0, coords1, flow_up1 = model(image1, image2, iters=20, test_mode=True)
             coords2, coords3, flow_up2 = model(image2, image3, iters=20, test_mode=True)
             
             optical_flow1 = flow_up1[0].permute(1,2,0).cpu().numpy()
             optical_flow2 = flow_up2[0].permute(1,2,0).cpu().numpy()
         
+            # Calculate Gradient of OF for this image sequence
             grad_flow = optical_flow2 - optical_flow1
 
             gf_magn = np.sqrt(np.sum(np.power(grad_flow,2),axis=2))
             gf_magn = gf_magn / gf_magn.max()
-            
-            gf_dir = (np.arctan2(grad_flow[:,:,0],grad_flow[:,:,1]) + np.pi) / (2*np.pi)
-            
-            dir_map = plt.get_cmap('hsv')
-            gf_magn_GS = cv2.cvtColor(gf_magn,cv2.COLOR_GRAY2RGB)
-            gf_dir_RGB = np.multiply(dir_map(gf_dir)[:,:,:3],255.0)
-            gf_overlap_RGB = np.multiply(np.divide(gf_magn_GS,255.0),gf_dir_RGB)
             
             ## BLURRED COMBINATION
             # Idea: A Gaussian Blurred image of the OF field in addition to the OF, we may be able to recover:
@@ -109,6 +103,7 @@ def main(args):
             # 1. Egomotion Field (Same in successive OFs + approx. 0 in Gradient)
             # 2. Motion from OF 1
             # 3. Motion from OF 2
+            # Results: We get a few interesting resultant images, looks like we get an estimate of ego-motion, but it includes the center of the vehicle
 
             # Perform IVA using pyiva
             OF_shape = optical_flow1[:,:,0].shape
@@ -160,23 +155,9 @@ def main(args):
 
             ## LAPLACIAN
             # Idea: Employ the Laplacian Operator on the OF to try to eliminate ego-motion
-            OF_mag = np.sqrt(np.sum(np.power(optical_flow1,2),axis=2))
-            OF_mag /= OF_mag.max()
-            # OF_mag = np.uint8(OF_mag * 255)
-            OF_lap = cv2.Laplacian(optical_flow1[:,:,0],ddepth=-1)
-            OF_lap /= OF_lap.max()
-            OF_lap_sq = OF_lap ** 2
-            OF_lap_sq /= OF_lap_sq.max()
-
-            OF_thresh = np.float32(np.array([[1 if OF_lap[j,i] > 0.2 else 0 for i in range(OF_lap.shape[1])] for j in range(OF_lap.shape[0])]))
-            print(OF_thresh.shape)
-            fig, (pl1_lap, pl2_lap, pl3_lap, pl4_lap) = plt.subplots(4,1)
-            pl1_lap.imshow(cv2.cvtColor(OF_mag,cv2.COLOR_GRAY2RGB))
-            pl2_lap.imshow(cv2.cvtColor(OF_lap,cv2.COLOR_GRAY2RGB))
-            pl3_lap.imshow(cv2.cvtColor(OF_lap_sq,cv2.COLOR_GRAY2RGB))
-            pl4_lap.imshow(cv2.cvtColor(OF_thresh,cv2.COLOR_GRAY2RGB))
-            plt.show()
-            continue
+            # See: demo_laplacian.py
+            
+            continue # Disabled so that the images aren't constantly overwritten
 
             # Old code for visualizing OF/GF, mostly for reference (pictures are in the repo)
 
@@ -184,15 +165,20 @@ def main(args):
             OF_magn = OF_magn / OF_magn.max()
             OF_dir = (np.arctan2(grad_flow[:,:,0],grad_flow[:,:,1]) + np.pi) / (2 * np.pi)
 
-            #OF_combo = 255 * (((OF_magn * OF_dir) + np.pi) / (2*np.pi))
+            GF_dir = (np.arctan2(grad_flow[:,:,0],grad_flow[:,:,1]) + np.pi) / (2*np.pi)
+            
+            dir_map = plt.get_cmap('hsv')
+            GF_magn_GS = cv2.cvtColor(GF_magn,cv2.COLOR_GRAY2RGB)
+            GF_dir_RGB = np.multiply(dir_map(GF_dir)[:,:,:3],255.0)
+            GF_overlap_RGB = np.multiply(np.divide(GF_magn_GS,255.0),GF_dir_RGB)
+
             OF_combo = 25.5 * (np.floor((10*OF_magn)) + OF_dir)
             plt.imshow(cv2.cvtColor(OF_combo,cv2.COLOR_GRAY2RGB).astype('int'))
             plt.savefig(args.scene + "_of_combo_optical_flow.png")
 
+            # Visualize results of basic ICA on combined mag/dir (found that this does not work very well)
             OF_ica = ica.fit_transform(OF_combo)
-            
             OF_ica_inv = ica.inverse_transform(OF_ica)
-            #OF_ica_inv = 255.0/np.max(OF_ica_inv)
             OF_iso = OF_magn * 255 - OF_ica_inv
 
             plt.imshow(cv2.cvtColor(OF_iso,cv2.COLOR_GRAY2RGB).astype('int'))
